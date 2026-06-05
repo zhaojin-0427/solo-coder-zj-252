@@ -3,22 +3,29 @@ from rest_framework.decorators import action
 from rest_framework.response import Response
 from django.db.models import Count, Avg, Q
 from django.utils import timezone
-from datetime import timedelta
+from datetime import timedelta, date
 from collections import defaultdict
 
 from .models import (
     FightType, WeightClass, TrainingGoal, Member, Coach,
     TrainingPlan, TrainingSession, FitnessData, SkillProgression,
-    SparringMatch, MatchRequest
+    SparringMatch, MatchRequest, InjuryFatigueRecord, MatchingWeightConfig,
+    TrainingPlanGoal, TrainingLoadAssessment, MatchRiskAssessment
 )
 from .serializers import (
     FightTypeSerializer, WeightClassSerializer, TrainingGoalSerializer,
     MemberSerializer, CoachSerializer, TrainingPlanSerializer,
     TrainingSessionSerializer, FitnessDataSerializer,
     SkillProgressionSerializer, SparringMatchSerializer,
-    MatchRequestSerializer
+    MatchRequestSerializer, InjuryFatigueRecordSerializer,
+    MatchingWeightConfigSerializer, TrainingPlanGoalSerializer,
+    TrainingLoadAssessmentSerializer, MatchRiskAssessmentSerializer
 )
 from .matching import find_potential_partners, auto_match_requests, calculate_match_score
+from .training_load import (
+    calculate_training_load_index, save_load_assessment,
+    get_member_load_trend, assess_match_risk, generate_all_daily_assessments
+)
 
 
 class FightTypeViewSet(viewsets.ModelViewSet):
@@ -70,17 +77,60 @@ class MemberViewSet(viewsets.ModelViewSet):
             weight_range_max=member.weight + 5,
             skill_level_preference=None
         )
-        partners = find_potential_partners(temp_request)
+        scored_partners = find_potential_partners(temp_request)
 
         result = []
-        for partner in partners:
-            score = calculate_match_score(member, partner, int(fight_type_id))
+        for partner, score_result in scored_partners:
             result.append({
                 'member': MemberSerializer(partner).data,
-                'match_score': score
+                'match_score': score_result['total_score'],
+                'score_details': score_result
             })
 
         return Response(result)
+
+    @action(detail=True, methods=['get'])
+    def training_load(self, request, pk=None):
+        member = self.get_object()
+        assessment_date = request.query_params.get('date')
+        if assessment_date:
+            from datetime import datetime
+            assessment_date = datetime.strptime(assessment_date, '%Y-%m-%d').date()
+
+        load_data = calculate_training_load_index(member, assessment_date)
+        return Response(load_data)
+
+    @action(detail=True, methods=['post'])
+    def calculate_load(self, request, pk=None):
+        member = self.get_object()
+        assessment = save_load_assessment(member)
+        return Response(TrainingLoadAssessmentSerializer(assessment).data)
+
+    @action(detail=True, methods=['get'])
+    def load_trend(self, request, pk=None):
+        member = self.get_object()
+        days = int(request.query_params.get('days', 30))
+        trend_data = get_member_load_trend(member, days)
+        return Response(trend_data)
+
+    @action(detail=True, methods=['get'])
+    def injury_fatigue_records(self, request, pk=None):
+        member = self.get_object()
+        records = InjuryFatigueRecord.objects.filter(member=member)
+        status_filter = request.query_params.get('status')
+        if status_filter:
+            records = records.filter(status=status_filter)
+        return Response(InjuryFatigueRecordSerializer(records, many=True).data)
+
+    @action(detail=True, methods=['post'])
+    def add_injury_fatigue(self, request, pk=None):
+        member = self.get_object()
+        data = {**request.data, 'member_id': member.id}
+        serializer = InjuryFatigueRecordSerializer(data=data)
+        if serializer.is_valid():
+            serializer.save()
+            return Response(serializer.data, status=status.HTTP_201_CREATED)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 
 class CoachViewSet(viewsets.ModelViewSet):
@@ -135,6 +185,64 @@ class TrainingPlanViewSet(viewsets.ModelViewSet):
         return Response({
             'message': f'Generated {len(sessions)} sessions',
             'sessions': TrainingSessionSerializer(sessions, many=True).data
+        })
+
+    @action(detail=True, methods=['get'])
+    def plan_goals(self, request, pk=None):
+        plan = self.get_object()
+        try:
+            goals = TrainingPlanGoal.objects.get(training_plan=plan)
+            return Response(TrainingPlanGoalSerializer(goals).data)
+        except TrainingPlanGoal.DoesNotExist:
+            return Response(None)
+
+    @action(detail=True, methods=['post'])
+    def set_plan_goals(self, request, pk=None):
+        plan = self.get_object()
+        data = {**request.data, 'training_plan_id': plan.id}
+
+        try:
+            goals = TrainingPlanGoal.objects.get(training_plan=plan)
+            serializer = TrainingPlanGoalSerializer(goals, data=data, partial=True)
+        except TrainingPlanGoal.DoesNotExist:
+            serializer = TrainingPlanGoalSerializer(data=data)
+
+        if serializer.is_valid():
+            serializer.save()
+            return Response(serializer.data)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+    @action(detail=True, methods=['get'])
+    def member_load_summary(self, request, pk=None):
+        plan = self.get_object()
+        member = plan.member
+        days = int(request.query_params.get('days', 30))
+
+        load_data = calculate_training_load_index(member)
+        trend_data = get_member_load_trend(member, days)
+
+        week_start = timezone.now().date() - timedelta(days=timezone.now().date().weekday())
+        week_end = week_start + timedelta(days=6)
+        week_sessions = TrainingSession.objects.filter(
+            member=member,
+            session_date__gte=week_start,
+            session_date__lte=week_end,
+            status='completed'
+        ).count()
+        week_matches = SparringMatch.objects.filter(
+            Q(member1=member) | Q(member2=member),
+            scheduled_date__gte=week_start,
+            scheduled_date__lte=week_end,
+            status='completed'
+        ).count()
+
+        return Response({
+            'current_load': load_data,
+            'trend': trend_data,
+            'weekly_summary': {
+                'sessions_completed': week_sessions,
+                'matches_completed': week_matches,
+            },
         })
 
 
@@ -280,18 +388,37 @@ class MatchRequestViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=['get'])
     def partners(self, request, pk=None):
         match_request = self.get_object()
-        partners = find_potential_partners(match_request)
+        scored_partners = find_potential_partners(match_request)
 
         result = []
-        for partner in partners:
-            score = calculate_match_score(
-                match_request.member, partner, match_request.fight_type_id, match_request.preferred_date)
+        for partner, score_result in scored_partners:
             result.append({
                 'member': MemberSerializer(partner).data,
-                'match_score': score
+                'match_score': score_result['total_score'],
+                'score_details': score_result,
             })
 
         return Response(result)
+
+    @action(detail=True, methods=['post'])
+    def assess_risk(self, request, pk=None):
+        match_request = self.get_object()
+        partner_id = request.data.get('partner_id')
+        if not partner_id:
+            return Response({'error': 'partner_id is required'}, status=400)
+
+        try:
+            partner = Member.objects.get(id=partner_id)
+        except Member.DoesNotExist:
+            return Response({'error': 'Partner not found'}, status=404)
+
+        risk_result = assess_match_risk(
+            match_request.member, partner,
+            match_request.fight_type_id,
+            match_request.preferred_date
+        )
+
+        return Response(risk_result)
 
     @action(detail=False, methods=['post'])
     def auto_match(self, request):
@@ -459,3 +586,134 @@ class StatisticsViewSet(viewsets.ViewSet):
             'top_members': list(member_frequency),
             'total_sessions': sessions.count()
         })
+
+
+class InjuryFatigueRecordViewSet(viewsets.ModelViewSet):
+    queryset = InjuryFatigueRecord.objects.all()
+    serializer_class = InjuryFatigueRecordSerializer
+
+    def get_queryset(self):
+        queryset = InjuryFatigueRecord.objects.all().order_by('-created_at')
+        member_id = self.request.query_params.get('member', None)
+        status_filter = self.request.query_params.get('status', None)
+        record_type = self.request.query_params.get('type', None)
+        if member_id:
+            queryset = queryset.filter(member_id=member_id)
+        if status_filter:
+            queryset = queryset.filter(status=status_filter)
+        if record_type:
+            queryset = queryset.filter(type=record_type)
+        return queryset
+
+    @action(detail=True, methods=['post'])
+    def mark_recovered(self, request, pk=None):
+        record = self.get_object()
+        record.status = 'recovered'
+        record.actual_recovery_date = timezone.now().date()
+        record.save()
+        return Response(InjuryFatigueRecordSerializer(record).data)
+
+
+class MatchingWeightConfigViewSet(viewsets.ModelViewSet):
+    queryset = MatchingWeightConfig.objects.all()
+    serializer_class = MatchingWeightConfigSerializer
+    pagination_class = None
+
+    @action(detail=False, methods=['get'])
+    def active(self, request):
+        config = MatchingWeightConfig.objects.filter(is_active=True).first()
+        if not config:
+            config = MatchingWeightConfig.objects.create(name='Default Config')
+        return Response(MatchingWeightConfigSerializer(config).data)
+
+    @action(detail=True, methods=['post'])
+    def set_active(self, request, pk=None):
+        MatchingWeightConfig.objects.update(is_active=False)
+        config = self.get_object()
+        config.is_active = True
+        config.save()
+        return Response(MatchingWeightConfigSerializer(config).data)
+
+
+class TrainingLoadAssessmentViewSet(viewsets.ModelViewSet):
+    queryset = TrainingLoadAssessment.objects.all()
+    serializer_class = TrainingLoadAssessmentSerializer
+
+    def get_queryset(self):
+        queryset = TrainingLoadAssessment.objects.all().order_by('-assessment_date')
+        member_id = self.request.query_params.get('member', None)
+        if member_id:
+            queryset = queryset.filter(member_id=member_id)
+        return queryset
+
+    @action(detail=False, methods=['post'])
+    def generate_all(self, request):
+        assessments = generate_all_daily_assessments()
+        return Response({
+            'generated_count': len(assessments),
+            'assessments': TrainingLoadAssessmentSerializer(assessments, many=True).data
+        })
+
+    @action(detail=False, methods=['post'])
+    def generate_for_member(self, request):
+        member_id = request.data.get('member_id')
+        if not member_id:
+            return Response({'error': 'member_id is required'}, status=400)
+        try:
+            member = Member.objects.get(id=member_id)
+        except Member.DoesNotExist:
+            return Response({'error': 'Member not found'}, status=404)
+        assessment = save_load_assessment(member)
+        return Response(TrainingLoadAssessmentSerializer(assessment).data)
+
+
+class MatchRiskAssessmentViewSet(viewsets.ModelViewSet):
+    queryset = MatchRiskAssessment.objects.all()
+    serializer_class = MatchRiskAssessmentSerializer
+
+    def get_queryset(self):
+        queryset = MatchRiskAssessment.objects.all().order_by('-assessment_date')
+        member_id = self.request.query_params.get('member', None)
+        if member_id:
+            queryset = queryset.filter(Q(member1_id=member_id) | Q(member2_id=member_id))
+        return queryset
+
+    @action(detail=False, methods=['post'])
+    def assess(self, request):
+        member1_id = request.data.get('member1_id')
+        member2_id = request.data.get('member2_id')
+        fight_type_id = request.data.get('fight_type_id')
+        preferred_date = request.data.get('preferred_date')
+
+        if not all([member1_id, member2_id, fight_type_id]):
+            return Response(
+                {'error': 'member1_id, member2_id, and fight_type_id are required'},
+                status=400
+            )
+
+        try:
+            member1 = Member.objects.get(id=member1_id)
+            member2 = Member.objects.get(id=member2_id)
+        except Member.DoesNotExist:
+            return Response({'error': 'Member not found'}, status=404)
+
+        from datetime import datetime
+        pref_date = None
+        if preferred_date:
+            pref_date = timezone.make_aware(datetime.fromisoformat(preferred_date.replace('Z', '+00:00')))
+
+        result = assess_match_risk(member1, member2, fight_type_id, pref_date)
+        return Response(result)
+
+
+class TrainingPlanGoalViewSet(viewsets.ModelViewSet):
+    queryset = TrainingPlanGoal.objects.all()
+    serializer_class = TrainingPlanGoalSerializer
+    pagination_class = None
+
+    def get_queryset(self):
+        queryset = TrainingPlanGoal.objects.all()
+        plan_id = self.request.query_params.get('training_plan', None)
+        if plan_id:
+            queryset = queryset.filter(training_plan_id=plan_id)
+        return queryset

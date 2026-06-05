@@ -2,7 +2,8 @@ from rest_framework import serializers
 from .models import (
     FightType, WeightClass, TrainingGoal, Member, Coach,
     TrainingPlan, TrainingSession, FitnessData, SkillProgression,
-    SparringMatch, MatchRequest
+    SparringMatch, MatchRequest, InjuryFatigueRecord, MatchingWeightConfig,
+    TrainingPlanGoal, TrainingLoadAssessment, MatchRiskAssessment
 )
 
 
@@ -211,4 +212,52 @@ class MatchRequestSerializer(serializers.ModelSerializer):
     def get_potential_matches(self, obj):
         from .matching import find_potential_partners
         partners = find_potential_partners(obj)
-        return MemberSimpleSerializer(partners, many=True).data
+        return MemberSimpleSerializer([p[0] for p in partners], many=True).data
+
+
+class InjuryFatigueRecordSerializer(serializers.ModelSerializer):
+    member = MemberSimpleSerializer(read_only=True)
+    member_id = serializers.IntegerField(write_only=True)
+    reported_by = CoachSimpleSerializer(read_only=True)
+    reported_by_id = serializers.IntegerField(write_only=True, required=False, allow_null=True)
+
+    class Meta:
+        model = InjuryFatigueRecord
+        fields = '__all__'
+
+
+class MatchingWeightConfigSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = MatchingWeightConfig
+        fields = '__all__'
+
+
+class TrainingPlanGoalSerializer(serializers.ModelSerializer):
+    training_plan = TrainingPlanSerializer(read_only=True)
+    training_plan_id = serializers.IntegerField(write_only=True)
+
+    class Meta:
+        model = TrainingPlanGoal
+        fields = '__all__'
+
+
+class TrainingLoadAssessmentSerializer(serializers.ModelSerializer):
+    member = MemberSimpleSerializer(read_only=True)
+    member_id = serializers.IntegerField(write_only=True)
+
+    class Meta:
+        model = TrainingLoadAssessment
+        fields = '__all__'
+
+
+class MatchRiskAssessmentSerializer(serializers.ModelSerializer):
+    member1 = MemberSimpleSerializer(read_only=True)
+    member1_id = serializers.IntegerField(write_only=True)
+    member2 = MemberSimpleSerializer(read_only=True)
+    member2_id = serializers.IntegerField(write_only=True)
+    fight_type = FightTypeSerializer(read_only=True)
+    fight_type_id = serializers.IntegerField(write_only=True)
+
+    class Meta:
+        model = MatchRiskAssessment
+        fields = '__all__'

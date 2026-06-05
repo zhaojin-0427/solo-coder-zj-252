@@ -21,7 +21,10 @@ from core.views import (
     FightTypeViewSet, WeightClassViewSet, TrainingGoalViewSet,
     MemberViewSet, CoachViewSet, TrainingPlanViewSet,
     TrainingSessionViewSet, FitnessDataViewSet, SkillProgressionViewSet,
-    SparringMatchViewSet, MatchRequestViewSet, StatisticsViewSet
+    SparringMatchViewSet, MatchRequestViewSet, StatisticsViewSet,
+    InjuryFatigueRecordViewSet, MatchingWeightConfigViewSet,
+    TrainingLoadAssessmentViewSet, MatchRiskAssessmentViewSet,
+    TrainingPlanGoalViewSet
 )
 
 router = DefaultRouter()
@@ -37,6 +40,11 @@ router.register(r'skill-progressions', SkillProgressionViewSet)
 router.register(r'sparring-matches', SparringMatchViewSet)
 router.register(r'match-requests', MatchRequestViewSet)
 router.register(r'statistics', StatisticsViewSet, basename='statistics')
+router.register(r'injury-fatigue-records', InjuryFatigueRecordViewSet)
+router.register(r'matching-weight-configs', MatchingWeightConfigViewSet)
+router.register(r'training-load-assessments', TrainingLoadAssessmentViewSet)
+router.register(r'match-risk-assessments', MatchRiskAssessmentViewSet)
+router.register(r'training-plan-goals', TrainingPlanGoalViewSet)
 
 urlpatterns = [
     path('admin/', admin.site.urls),

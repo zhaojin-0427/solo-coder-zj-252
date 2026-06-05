@@ -197,3 +197,183 @@ class MatchRequest(models.Model):
 
     def __str__(self):
         return f"{self.member.name} - {self.fight_type} - {self.preferred_date}"
+
+
+class InjuryFatigueRecord(models.Model):
+    TYPE_CHOICES = [
+        ('injury', '伤病'),
+        ('fatigue', '疲劳'),
+        ('rest', '休息需求'),
+    ]
+    SEVERITY_CHOICES = [
+        ('mild', '轻微'),
+        ('moderate', '中等'),
+        ('severe', '严重'),
+    ]
+    STATUS_CHOICES = [
+        ('active', '活动中'),
+        ('recovered', '已恢复'),
+        ('chronic', '慢性'),
+    ]
+
+    member = models.ForeignKey(Member, on_delete=models.CASCADE, related_name='injury_fatigue_records')
+    reported_by = models.ForeignKey(Coach, on_delete=models.SET_NULL, null=True, blank=True, related_name='reported_records')
+    type = models.CharField(max_length=20, choices=TYPE_CHOICES)
+    severity = models.CharField(max_length=20, choices=SEVERITY_CHOICES, default='mild')
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='active')
+    description = models.TextField()
+    affected_body_part = models.CharField(max_length=100, blank=True)
+    onset_date = models.DateField()
+    expected_recovery_date = models.DateField(null=True, blank=True)
+    actual_recovery_date = models.DateField(null=True, blank=True)
+    training_restriction_days = models.IntegerField(default=0)
+    no_sparring_days = models.IntegerField(default=0)
+    notes = models.TextField(blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f"{self.member.name} - {self.get_type_display()} - {self.get_severity_display()}"
+
+
+class MatchingWeightConfig(models.Model):
+    INTENSITY_CHOICES = [
+        ('very_light', '极轻量'),
+        ('light', '轻量'),
+        ('moderate', '中等'),
+        ('intense', '高强度'),
+        ('very_intense', '极高强度'),
+    ]
+
+    name = models.CharField(max_length=100, unique=True)
+    is_active = models.BooleanField(default=True)
+    weight_similarity_weight = models.FloatField(default=35)
+    skill_similarity_weight = models.FloatField(default=35)
+    time_compatibility_weight = models.FloatField(default=20)
+    fight_type_match_weight = models.FloatField(default=10)
+    recent_match_avoidance_weight = models.FloatField(default=5)
+    load_risk_penalty_weight = models.FloatField(default=30)
+    injury_risk_penalty_weight = models.FloatField(default=40)
+    max_allowed_weight_diff = models.FloatField(default=5)
+    max_allowed_skill_diff = models.IntegerField(default=2)
+    max_allowed_risk_score = models.FloatField(default=60)
+    min_recent_match_interval_days = models.IntegerField(default=3)
+    auto_block_high_risk = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return self.name
+
+
+class TrainingPlanGoal(models.Model):
+    PERIOD_CHOICES = [
+        ('weekly', '每周'),
+        ('biweekly', '每两周'),
+        ('monthly', '每月'),
+    ]
+    INTENSITY_CHOICES = [
+        ('very_light', '极轻量'),
+        ('light', '轻量'),
+        ('moderate', '中等'),
+        ('intense', '高强度'),
+        ('very_intense', '极高强度'),
+    ]
+
+    training_plan = models.OneToOneField(TrainingPlan, on_delete=models.CASCADE, related_name='plan_goals')
+    period_type = models.CharField(max_length=50, default='weekly')
+    target_load_per_week = models.FloatField(default=500)
+    max_load_per_week = models.FloatField(default=800)
+    max_sessions_per_week = models.IntegerField(default=5)
+    max_consecutive_training_days = models.IntegerField(default=3)
+    min_rest_days_per_week = models.IntegerField(default=1)
+    target_intensity = models.CharField(max_length=20, choices=INTENSITY_CHOICES, default='moderate')
+    max_intensity = models.CharField(max_length=20, choices=INTENSITY_CHOICES, default='intense')
+    allow_sparring = models.BooleanField(default=True)
+    max_sparring_per_week = models.IntegerField(default=2)
+    weight_gain_goal = models.FloatField(null=True, blank=True)
+    weight_loss_goal = models.FloatField(null=True, blank=True)
+    skill_improvement_goals = models.JSONField(default=list)
+    notes = models.TextField(blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return f"Goals for {self.training_plan.name}"
+
+
+class TrainingLoadAssessment(models.Model):
+    LOAD_LEVEL_CHOICES = [
+        ('very_low', '极低'),
+        ('low', '低'),
+        ('moderate', '中等'),
+        ('high', '高'),
+        ('very_high', '极高'),
+    ]
+    RECOVERY_STATUS_CHOICES = [
+        ('exhausted', '疲惫'),
+        ('fatigued', '疲劳'),
+        ('normal', '正常'),
+        ('recovered', '恢复良好'),
+        ('fresh', '状态极佳'),
+    ]
+
+    member = models.ForeignKey(Member, on_delete=models.CASCADE, related_name='load_assessments')
+    assessment_date = models.DateField()
+    training_load_index = models.FloatField(default=0)
+    load_level = models.CharField(max_length=20, choices=LOAD_LEVEL_CHOICES, default='moderate')
+    recovery_status = models.CharField(max_length=20, choices=RECOVERY_STATUS_CHOICES, default='normal')
+    recovery_score = models.FloatField(default=50)
+    acute_load = models.FloatField(default=0)
+    chronic_load = models.FloatField(default=0)
+    acwr = models.FloatField(default=0)
+    fatigue_score = models.FloatField(default=0)
+    injury_risk_score = models.FloatField(default=0)
+    available_training_minutes = models.IntegerField(default=0)
+    recommended_intensity = models.CharField(max_length=50, default='moderate')
+    data_sources = models.JSONField(default=dict)
+    calculation_details = models.JSONField(default=dict)
+    notes = models.TextField(blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-assessment_date']
+        unique_together = ('member', 'assessment_date')
+
+    def __str__(self):
+        return f"{self.member.name} - {self.assessment_date} - TLI: {self.training_load_index}"
+
+
+class MatchRiskAssessment(models.Model):
+    RISK_LEVEL_CHOICES = [
+        ('safe', '安全'),
+        ('low', '低风险'),
+        ('moderate', '中等风险'),
+        ('high', '高风险'),
+        ('dangerous', '危险'),
+    ]
+
+    member1 = models.ForeignKey(Member, on_delete=models.CASCADE, related_name='risk_assessments_as_1')
+    member2 = models.ForeignKey(Member, on_delete=models.CASCADE, related_name='risk_assessments_as_2')
+    fight_type = models.ForeignKey(FightType, on_delete=models.CASCADE)
+    assessment_date = models.DateTimeField(auto_now_add=True)
+    risk_level = models.CharField(max_length=20, choices=RISK_LEVEL_CHOICES, default='safe')
+    risk_score = models.FloatField(default=0)
+    weight_diff_score = models.FloatField(default=0)
+    skill_diff_score = models.FloatField(default=0)
+    fatigue_risk_score = models.FloatField(default=0)
+    injury_risk_score = models.FloatField(default=0)
+    recent_match_penalty = models.FloatField(default=0)
+    risk_factors = models.JSONField(default=list)
+    recommendations = models.JSONField(default=list)
+    is_blocked = models.BooleanField(default=False)
+    block_reason = models.TextField(blank=True)
+
+    class Meta:
+        ordering = ['-assessment_date']
+
+    def __str__(self):
+        return f"{self.member1.name} vs {self.member2.name} - {self.get_risk_level_display()}"

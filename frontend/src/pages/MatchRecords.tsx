@@ -17,6 +17,8 @@ import {
   Divider,
   Progress,
   Slider,
+  DatePicker,
+  InputNumber,
 } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import dayjs from 'dayjs';
@@ -27,6 +29,8 @@ import {
   coachApi,
   fightTypeApi,
   skillProgressionApi,
+  injuryFatigueRecordApi,
+  memberApiExtended,
 } from '../services/api';
 import type {
   TrainingSession,
@@ -36,6 +40,7 @@ import type {
   FightType,
   FitnessData,
   SkillProgression,
+  InjuryFatigueRecord,
 } from '../types';
 
 const { Option } = Select;
@@ -83,6 +88,19 @@ interface SkillProgressionFormValues {
   coach_notes: string;
 }
 
+interface InjuryFatigueFormValues {
+  type: 'injury' | 'fatigue' | 'rest';
+  severity: 'mild' | 'moderate' | 'severe';
+  status: 'active' | 'recovered' | 'chronic';
+  description: string;
+  affected_body_part: string;
+  onset_date: string;
+  expected_recovery_date?: string;
+  training_restriction_days: number;
+  no_sparring_days: number;
+  notes: string;
+}
+
 const sessionStatusColors: Record<string, string> = {
   scheduled: 'blue',
   completed: 'green',
@@ -103,6 +121,49 @@ const matchResultText: Record<string, string> = {
   cancelled: '已取消',
 };
 
+const injuryTypeText: Record<string, string> = {
+  injury: '伤病',
+  fatigue: '疲劳',
+  rest: '休息需求',
+};
+
+const injurySeverityText: Record<string, string> = {
+  mild: '轻微',
+  moderate: '中等',
+  severe: '严重',
+};
+
+const injuryStatusText: Record<string, string> = {
+  active: '活动中',
+  recovered: '已恢复',
+  chronic: '慢性',
+};
+
+const injuryTypeColors: Record<string, string> = {
+  injury: 'red',
+  fatigue: 'orange',
+  rest: 'blue',
+};
+
+const injurySeverityColors: Record<string, string> = {
+  mild: 'green',
+  moderate: 'orange',
+  severe: 'red',
+};
+
+const injuryStatusColors: Record<string, string> = {
+  active: 'red',
+  recovered: 'green',
+  chronic: 'orange',
+};
+
+const bodyParts = [
+  '头部', '颈部', '肩部', '手臂', '肘部', '手腕', '手掌', '手指',
+  '胸部', '背部', '腰部', '腹部', '髋部', '臀部',
+  '大腿', '膝盖', '小腿', '脚踝', '脚部', '脚趾',
+  '全身', '其他',
+];
+
 const MatchRecordsPage = () => {
   const [activeTab, setActiveTab] = useState('sessions');
   const [sessions, setSessions] = useState<TrainingSession[]>([]);
@@ -111,19 +172,26 @@ const MatchRecordsPage = () => {
   const [coaches, setCoaches] = useState<Coach[]>([]);
   const [fightTypes, setFightTypes] = useState<FightType[]>([]);
   const [skillProgressions, setSkillProgressions] = useState<SkillProgression[]>([]);
+  const [injuryFatigueRecords, setInjuryFatigueRecords] = useState<InjuryFatigueRecord[]>([]);
   const [loading, setLoading] = useState(false);
+  const [injuryLoading, setInjuryLoading] = useState(false);
   const [completeModalVisible, setCompleteModalVisible] = useState(false);
   const [sessionDetailVisible, setSessionDetailVisible] = useState(false);
   const [resultModalVisible, setResultModalVisible] = useState(false);
   const [matchDetailVisible, setMatchDetailVisible] = useState(false);
   const [skillModalVisible, setSkillModalVisible] = useState(false);
+  const [injuryFatigueModalVisible, setInjuryFatigueModalVisible] = useState(false);
   const [selectedSession, setSelectedSession] = useState<TrainingSession | null>(null);
   const [selectedMatch, setSelectedMatch] = useState<SparringMatch | null>(null);
+  const [selectedMemberForInjury, setSelectedMemberForInjury] = useState<Member | null>(null);
+  const [sessionDetailTab, setSessionDetailTab] = useState('info');
+  const [matchDetailTab, setMatchDetailTab] = useState('info');
   const [sessionFilterForm] = Form.useForm<SessionFilterValues>();
   const [matchFilterForm] = Form.useForm<MatchFilterValues>();
   const [completeForm] = Form.useForm<CompleteSessionFormValues>();
   const [resultForm] = Form.useForm<RecordResultFormValues>();
   const [skillForm] = Form.useForm<SkillProgressionFormValues>();
+  const [injuryFatigueForm] = Form.useForm<InjuryFatigueFormValues>();
 
   const fetchMembers = async () => {
     try {
@@ -184,6 +252,18 @@ const MatchRecordsPage = () => {
     }
   };
 
+  const fetchInjuryFatigueRecords = async (memberId: number) => {
+    setInjuryLoading(true);
+    try {
+      const response = await memberApiExtended.getInjuryFatigueRecords(memberId);
+      setInjuryFatigueRecords(response.data);
+    } catch {
+      message.error('获取伤病/疲劳记录失败');
+    } finally {
+      setInjuryLoading(false);
+    }
+  };
+
   useEffect(() => {
     fetchMembers();
     fetchCoaches();
@@ -224,6 +304,7 @@ const MatchRecordsPage = () => {
 
   const handleViewSessionDetail = async (session: TrainingSession) => {
     setSelectedSession(session);
+    setSessionDetailTab('info');
     await fetchSkillProgressions(session.member_id, session.fight_type_id);
     setSessionDetailVisible(true);
   };
@@ -277,6 +358,7 @@ const MatchRecordsPage = () => {
 
   const handleViewMatchDetail = (match: SparringMatch) => {
     setSelectedMatch(match);
+    setMatchDetailTab('info');
     setMatchDetailVisible(true);
   };
 
@@ -320,6 +402,59 @@ const MatchRecordsPage = () => {
     }
   };
 
+  const handleRecordInjuryFatigueForSession = (session: TrainingSession) => {
+    setSelectedMemberForInjury(session.member);
+    injuryFatigueForm.resetFields();
+    injuryFatigueForm.setFieldsValue({
+      type: 'fatigue',
+      severity: 'mild',
+      status: 'active',
+      onset_date: dayjs().format('YYYY-MM-DD'),
+      training_restriction_days: 0,
+      no_sparring_days: 0,
+    });
+    setInjuryFatigueModalVisible(true);
+  };
+
+  const handleRecordInjuryFatigueForMatch = (match: SparringMatch, member: Member) => {
+    setSelectedMemberForInjury(member);
+    injuryFatigueForm.resetFields();
+    injuryFatigueForm.setFieldsValue({
+      type: 'fatigue',
+      severity: 'mild',
+      status: 'active',
+      onset_date: dayjs().format('YYYY-MM-DD'),
+      training_restriction_days: 0,
+      no_sparring_days: 0,
+    });
+    setInjuryFatigueModalVisible(true);
+  };
+
+  const handleSubmitInjuryFatigue = async () => {
+    if (!selectedMemberForInjury) return;
+    try {
+      const values = await injuryFatigueForm.validateFields();
+      const formattedValues = {
+        ...values,
+        onset_date: values.onset_date ? dayjs(values.onset_date).format('YYYY-MM-DD') : undefined,
+        expected_recovery_date: values.expected_recovery_date
+          ? dayjs(values.expected_recovery_date).format('YYYY-MM-DD')
+          : undefined,
+      };
+      await memberApiExtended.addInjuryFatigue(selectedMemberForInjury.id, formattedValues);
+      message.success('记录伤病/疲劳成功');
+      setInjuryFatigueModalVisible(false);
+      if (selectedSession) {
+        await fetchInjuryFatigueRecords(selectedSession.member_id);
+      }
+      if (selectedMatch) {
+        await fetchInjuryFatigueRecords(selectedMatch.member1_id);
+      }
+    } catch {
+      message.error('记录伤病/疲劳失败');
+    }
+  };
+
   const handleSessionFilter = () => {
     const values = sessionFilterForm.getFieldsValue();
     fetchSessions(values);
@@ -338,6 +473,30 @@ const MatchRecordsPage = () => {
   const handleMatchReset = () => {
     matchFilterForm.resetFields();
     fetchMatches();
+  };
+
+  const handleSessionDetailTabChange = async (key: string) => {
+    setSessionDetailTab(key);
+    if (key === 'injury' && selectedSession) {
+      await fetchInjuryFatigueRecords(selectedSession.member_id);
+    }
+  };
+
+  const handleMatchDetailTabChange = async (key: string, memberId: number) => {
+    setMatchDetailTab(key);
+    if (key === 'injury') {
+      await fetchInjuryFatigueRecords(memberId);
+    }
+  };
+
+  const handleMarkRecovered = async (record: InjuryFatigueRecord) => {
+    try {
+      await injuryFatigueRecordApi.markRecovered(record.id);
+      message.success('标记已恢复成功');
+      await fetchInjuryFatigueRecords(record.member_id);
+    } catch {
+      message.error('标记已恢复失败');
+    }
   };
 
   const sessionColumns: ColumnsType<TrainingSession> = [
@@ -408,6 +567,16 @@ const MatchRecordsPage = () => {
               onClick={() => handleCompleteSession(record)}
             >
               记录成绩
+            </Button>
+          )}
+          {record.status === 'completed' && (
+            <Button
+              type="link"
+              size="small"
+              danger
+              onClick={() => handleRecordInjuryFatigueForSession(record)}
+            >
+              记录伤病/疲劳
             </Button>
           )}
         </Space>
@@ -502,6 +671,28 @@ const MatchRecordsPage = () => {
               记录比赛结果
             </Button>
           )}
+          {record.status === 'completed' && (
+            <Space direction="vertical" size={0}>
+              <Button
+                type="link"
+                size="small"
+                danger
+                onClick={() => handleRecordInjuryFatigueForMatch(record, record.member1)}
+              >
+                {record.member1.name}伤病/疲劳
+              </Button>
+              {record.member2 && (
+                <Button
+                  type="link"
+                  size="small"
+                  danger
+                  onClick={() => handleRecordInjuryFatigueForMatch(record, record.member2)}
+                >
+                  {record.member2.name}伤病/疲劳
+                </Button>
+              )}
+            </Space>
+          )}
         </Space>
       ),
     },
@@ -590,6 +781,90 @@ const MatchRecordsPage = () => {
                     size="small"
                     style={{ width: 200, marginTop: 4 }}
                   />
+                </Space>
+              }
+            />
+          </List.Item>
+        )}
+      />
+    );
+  };
+
+  const renderInjuryFatigueList = () => {
+    if (injuryFatigueRecords.length === 0)
+      return <div style={{ color: '#999', padding: '16px 0' }}>暂无伤病/疲劳记录</div>;
+
+    return (
+      <List
+        loading={injuryLoading}
+        dataSource={injuryFatigueRecords}
+        renderItem={(item) => (
+          <List.Item
+            actions={
+              item.status === 'active'
+                ? [
+                    <Button
+                      key="recover"
+                      type="link"
+                      size="small"
+                      onClick={() => handleMarkRecovered(item)}
+                    >
+                      标记已恢复
+                    </Button>,
+                  ]
+                : []
+            }
+          >
+            <List.Item.Meta
+              title={
+                <Space wrap>
+                  <Tag color={injuryTypeColors[item.type]}>
+                    {injuryTypeText[item.type]}
+                  </Tag>
+                  <Tag color={injurySeverityColors[item.severity]}>
+                    {injurySeverityText[item.severity]}
+                  </Tag>
+                  <Tag color={injuryStatusColors[item.status]}>
+                    {injuryStatusText[item.status]}
+                  </Tag>
+                  <span style={{ fontWeight: 'bold' }}>{item.affected_body_part}</span>
+                </Space>
+              }
+              description={
+                <Space direction="vertical" size={0} style={{ width: '100%' }}>
+                  <div>
+                    <strong>描述:</strong> {item.description}
+                  </div>
+                  <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', marginTop: 8 }}>
+                    <span>
+                      <strong>发病日期:</strong>{' '}
+                      {dayjs(item.onset_date).format('YYYY-MM-DD')}
+                    </span>
+                    {item.expected_recovery_date && (
+                      <span>
+                        <strong>预计恢复:</strong>{' '}
+                        {dayjs(item.expected_recovery_date).format('YYYY-MM-DD')}
+                      </span>
+                    )}
+                    {item.actual_recovery_date && (
+                      <span>
+                        <strong>实际恢复:</strong>{' '}
+                        {dayjs(item.actual_recovery_date).format('YYYY-MM-DD')}
+                      </span>
+                    )}
+                  </div>
+                  <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', marginTop: 4 }}>
+                    <Tag color="orange">训练限制: {item.training_restriction_days}天</Tag>
+                    <Tag color="red">禁止对练: {item.no_sparring_days}天</Tag>
+                  </div>
+                  {item.notes && (
+                    <div style={{ color: '#666', marginTop: 4 }}>
+                      <strong>备注:</strong> {item.notes}
+                    </div>
+                  )}
+                  <div style={{ color: '#999', fontSize: 12, marginTop: 4 }}>
+                    记录时间: {dayjs(item.created_at).format('YYYY-MM-DD HH:mm')}
+                  </div>
                 </Space>
               }
             />
@@ -780,73 +1055,90 @@ const MatchRecordsPage = () => {
         onCancel={() => setSessionDetailVisible(false)}
         footer={
           selectedSession?.status === 'completed' ? (
-            <Button type="primary" onClick={handleAddSkill}>
-              记录技能进步
-            </Button>
+            <Space>
+              <Button
+                danger
+                onClick={() => handleRecordInjuryFatigueForSession(selectedSession)}
+              >
+                记录伤病/疲劳
+              </Button>
+              <Button type="primary" onClick={handleAddSkill}>
+                记录技能进步
+              </Button>
+            </Space>
           ) : null
         }
         width={800}
         destroyOnClose
       >
         {selectedSession && (
-          <Space direction="vertical" size="middle" style={{ width: '100%' }}>
-            <Space wrap>
-              <Tag color="blue">会员: {selectedSession.member.name}</Tag>
-              <Tag color="cyan">
-                教练: {selectedSession.coach?.name || '未分配'}
-              </Tag>
-              <Tag color="purple">
-                格斗类型: {selectedSession.fight_type.name}
-              </Tag>
-              <Tag color={sessionStatusColors[selectedSession.status] || 'default'}>
-                {selectedSession.status}
-              </Tag>
-              <Tag color="green">
-                时长: {selectedSession.duration_minutes} 分钟
-              </Tag>
-            </Space>
+          <Tabs activeKey={sessionDetailTab} onChange={handleSessionDetailTabChange}>
+            <TabPane tab="课程信息" key="info">
+              <Space direction="vertical" size="middle" style={{ width: '100%', paddingTop: 16 }}>
+                <Space wrap>
+                  <Tag color="blue">会员: {selectedSession.member.name}</Tag>
+                  <Tag color="cyan">
+                    教练: {selectedSession.coach?.name || '未分配'}
+                  </Tag>
+                  <Tag color="purple">
+                    格斗类型: {selectedSession.fight_type.name}
+                  </Tag>
+                  <Tag color={sessionStatusColors[selectedSession.status] || 'default'}>
+                    {selectedSession.status}
+                  </Tag>
+                  <Tag color="green">
+                    时长: {selectedSession.duration_minutes} 分钟
+                  </Tag>
+                </Space>
 
-            <Card title="课程信息" size="small">
-              <p>
-                <strong>课程日期:</strong>{' '}
-                {dayjs(selectedSession.session_date).format('YYYY-MM-DD HH:mm')}
-              </p>
-              <p>
-                <strong>出勤:</strong>{' '}
-                {selectedSession.attendance ? '已出勤' : '未出勤'}
-              </p>
-              {selectedSession.content && (
-                <p>
-                  <strong>练习内容:</strong> {selectedSession.content}
-                </p>
-              )}
-              {selectedSession.performance_notes && (
-                <p>
-                  <strong>实战表现:</strong> {selectedSession.performance_notes}
-                </p>
-              )}
-              {selectedSession.techniques_practiced?.length > 0 && (
-                <p>
-                  <strong>练习技术:</strong>{' '}
-                  <Space wrap>
-                    {selectedSession.techniques_practiced.map((tech, idx) => (
-                      <Tag key={idx} color="blue">
-                        {tech}
-                      </Tag>
-                    ))}
-                  </Space>
-                </p>
-              )}
-            </Card>
+                <Card title="课程信息" size="small">
+                  <p>
+                    <strong>课程日期:</strong>{' '}
+                    {dayjs(selectedSession.session_date).format('YYYY-MM-DD HH:mm')}
+                  </p>
+                  <p>
+                    <strong>出勤:</strong>{' '}
+                    {selectedSession.attendance ? '已出勤' : '未出勤'}
+                  </p>
+                  {selectedSession.content && (
+                    <p>
+                      <strong>练习内容:</strong> {selectedSession.content}
+                    </p>
+                  )}
+                  {selectedSession.performance_notes && (
+                    <p>
+                      <strong>实战表现:</strong> {selectedSession.performance_notes}
+                    </p>
+                  )}
+                  {selectedSession.techniques_practiced?.length > 0 && (
+                    <p>
+                      <strong>练习技术:</strong>{' '}
+                      <Space wrap>
+                        {selectedSession.techniques_practiced.map((tech, idx) => (
+                          <Tag key={idx} color="blue">
+                            {tech}
+                          </Tag>
+                        ))}
+                      </Space>
+                    </p>
+                  )}
+                </Card>
 
-            <Card title="体能数据" size="small">
-              {renderFitnessCard(selectedSession.fitness_data)}
-            </Card>
+                <Card title="体能数据" size="small">
+                  {renderFitnessCard(selectedSession.fitness_data)}
+                </Card>
 
-            <Card title="技术进步记录" size="small">
-              {renderSkillProgressionList()}
-            </Card>
-          </Space>
+                <Card title="技术进步记录" size="small">
+                  {renderSkillProgressionList()}
+                </Card>
+              </Space>
+            </TabPane>
+            <TabPane tab="伤病/疲劳记录" key="injury">
+              <div style={{ paddingTop: 16 }}>
+                {renderInjuryFatigueList()}
+              </div>
+            </TabPane>
+          </Tabs>
         )}
       </Modal>
 
@@ -911,90 +1203,123 @@ const MatchRecordsPage = () => {
         destroyOnClose
       >
         {selectedMatch && (
-          <Space direction="vertical" size="middle" style={{ width: '100%' }}>
-            <div style={{ textAlign: 'center', padding: '16px 0' }}>
-              <Space size="large" align="center">
-                <Space direction="vertical" size={0} align="center">
-                  <Avatar size={64} src={selectedMatch.member1.avatar}>
-                    {selectedMatch.member1.name?.charAt(0)}
-                  </Avatar>
-                  <span style={{ fontWeight: 'bold', fontSize: 16 }}>
-                    {selectedMatch.member1.name}
-                  </span>
-                  <span style={{ fontSize: 24, fontWeight: 'bold', color: '#1890ff' }}>
-                    {selectedMatch.member1_score ?? '-'}
-                  </span>
-                </Space>
-                <span style={{ fontSize: 20, color: '#999' }}>VS</span>
-                <Space direction="vertical" size={0} align="center">
-                  <Avatar size={64} src={selectedMatch.member2?.avatar}>
-                    {selectedMatch.member2?.name?.charAt(0)}
-                  </Avatar>
-                  <span style={{ fontWeight: 'bold', fontSize: 16 }}>
-                    {selectedMatch.member2?.name}
-                  </span>
-                  <span style={{ fontSize: 24, fontWeight: 'bold', color: '#1890ff' }}>
-                    {selectedMatch.member2_score ?? '-'}
-                  </span>
-                </Space>
-              </Space>
-              {selectedMatch.result && (
-                <div style={{ marginTop: 16 }}>
-                  <Tag
-                    color={matchResultColors[selectedMatch.result] || 'default'}
-                    style={{ fontSize: 16, padding: '4px 16px' }}
-                  >
-                    {matchResultText[selectedMatch.result] || selectedMatch.result}
-                  </Tag>
+          <Tabs
+            activeKey={matchDetailTab}
+            onChange={(key) => handleMatchDetailTabChange(key, selectedMatch.member1_id)}
+          >
+            <TabPane tab="比赛信息" key="info">
+              <Space direction="vertical" size="middle" style={{ width: '100%', paddingTop: 16 }}>
+                <div style={{ textAlign: 'center', padding: '16px 0' }}>
+                  <Space size="large" align="center">
+                    <Space direction="vertical" size={0} align="center">
+                      <Avatar size={64} src={selectedMatch.member1.avatar}>
+                        {selectedMatch.member1.name?.charAt(0)}
+                      </Avatar>
+                      <span style={{ fontWeight: 'bold', fontSize: 16 }}>
+                        {selectedMatch.member1.name}
+                      </span>
+                      <span style={{ fontSize: 24, fontWeight: 'bold', color: '#1890ff' }}>
+                        {selectedMatch.member1_score ?? '-'}
+                      </span>
+                    </Space>
+                    <span style={{ fontSize: 20, color: '#999' }}>VS</span>
+                    <Space direction="vertical" size={0} align="center">
+                      <Avatar size={64} src={selectedMatch.member2?.avatar}>
+                        {selectedMatch.member2?.name?.charAt(0)}
+                      </Avatar>
+                      <span style={{ fontWeight: 'bold', fontSize: 16 }}>
+                        {selectedMatch.member2?.name}
+                      </span>
+                      <span style={{ fontSize: 24, fontWeight: 'bold', color: '#1890ff' }}>
+                        {selectedMatch.member2_score ?? '-'}
+                      </span>
+                    </Space>
+                  </Space>
+                  {selectedMatch.result && (
+                    <div style={{ marginTop: 16 }}>
+                      <Tag
+                        color={matchResultColors[selectedMatch.result] || 'default'}
+                        style={{ fontSize: 16, padding: '4px 16px' }}
+                      >
+                        {matchResultText[selectedMatch.result] || selectedMatch.result}
+                      </Tag>
+                    </div>
+                  )}
                 </div>
-              )}
-            </div>
 
-            <Space wrap>
-              <Tag color="purple">
-                格斗类型: {selectedMatch.fight_type.name}
-              </Tag>
-              <Tag color="cyan">
-                体重级别: {selectedMatch.weight_class.name}
-              </Tag>
-              <Tag color="blue">
-                比赛时间:{' '}
-                {dayjs(selectedMatch.scheduled_date).format('YYYY-MM-DD HH:mm')}
-              </Tag>
-              <Tag color="gold">
-                匹配分: {selectedMatch.match_score}/100
-              </Tag>
-            </Space>
-
-            {selectedMatch.match_notes && (
-              <Card title="比赛记录" size="small">
-                <p>{selectedMatch.match_notes}</p>
-              </Card>
-            )}
-
-            {selectedMatch.techniques_used?.length > 0 && (
-              <Card title="技术统计" size="small">
                 <Space wrap>
-                  {selectedMatch.techniques_used.map((tech, idx) => (
-                    <Tag key={idx} color="blue">
-                      {tech}
-                    </Tag>
-                  ))}
+                  <Tag color="purple">
+                    格斗类型: {selectedMatch.fight_type.name}
+                  </Tag>
+                  <Tag color="cyan">
+                    体重级别: {selectedMatch.weight_class.name}
+                  </Tag>
+                  <Tag color="blue">
+                    比赛时间:{' '}
+                    {dayjs(selectedMatch.scheduled_date).format('YYYY-MM-DD HH:mm')}
+                  </Tag>
+                  <Tag color="gold">
+                    匹配分: {selectedMatch.match_score}/100
+                  </Tag>
                 </Space>
-                <div style={{ marginTop: 16 }}>
-                  <Rate
-                    disabled
-                    allowHalf
-                    count={5}
-                    value={selectedMatch.match_score / 20}
-                  />
-                  <span style={{ marginLeft: 8, color: '#666' }}>
-                    综合评分: {selectedMatch.match_score}/100
-                  </span>
-                </div>
-              </Card>
-            )}
-          </Space>
+
+                {selectedMatch.match_notes && (
+                  <Card title="比赛记录" size="small">
+                    <p>{selectedMatch.match_notes}</p>
+                  </Card>
+                )}
+
+                {selectedMatch.techniques_used?.length > 0 && (
+                  <Card title="技术统计" size="small">
+                    <Space wrap>
+                      {selectedMatch.techniques_used.map((tech, idx) => (
+                        <Tag key={idx} color="blue">
+                          {tech}
+                        </Tag>
+                      ))}
+                    </Space>
+                    <div style={{ marginTop: 16 }}>
+                      <Rate
+                        disabled
+                        allowHalf
+                        count={5}
+                        value={selectedMatch.match_score / 20}
+                      />
+                      <span style={{ marginLeft: 8, color: '#666' }}>
+                        综合评分: {selectedMatch.match_score}/100
+                      </span>
+                    </div>
+                  </Card>
+                )}
+
+                {selectedMatch.status === 'completed' && (
+                  <Card title="伤病/疲劳记录" size="small">
+                    <Space wrap>
+                      <Button
+                        danger
+                        onClick={() => handleRecordInjuryFatigueForMatch(selectedMatch, selectedMatch.member1)}
+                      >
+                        记录 {selectedMatch.member1.name} 伤病/疲劳
+                      </Button>
+                      {selectedMatch.member2 && (
+                        <Button
+                          danger
+                          onClick={() => handleRecordInjuryFatigueForMatch(selectedMatch, selectedMatch.member2)}
+                        >
+                          记录 {selectedMatch.member2.name} 伤病/疲劳
+                        </Button>
+                      )}
+                    </Space>
+                  </Card>
+                )}
+              </Space>
+            </TabPane>
+            <TabPane tab={`${selectedMatch.member1.name} 伤病/疲劳`} key="injury">
+              <div style={{ paddingTop: 16 }}>
+                {renderInjuryFatigueList()}
+              </div>
+            </TabPane>
+          </Tabs>
         )}
       </Modal>
 
@@ -1034,6 +1359,123 @@ const MatchRecordsPage = () => {
           </Form.Item>
           <Form.Item name="coach_notes" label="教练备注">
             <TextArea rows={3} placeholder="请输入教练备注" />
+          </Form.Item>
+        </Form>
+      </Modal>
+
+      <Modal
+        title={
+          selectedMemberForInjury
+            ? `记录 ${selectedMemberForInjury.name} 的伤病/疲劳`
+            : '记录伤病/疲劳'
+        }
+        open={injuryFatigueModalVisible}
+        onOk={handleSubmitInjuryFatigue}
+        onCancel={() => setInjuryFatigueModalVisible(false)}
+        width={700}
+        destroyOnClose
+      >
+        <Form form={injuryFatigueForm} layout="vertical">
+          <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap' }}>
+            <Form.Item
+              name="type"
+              label="类型"
+              rules={[{ required: true, message: '请选择类型' }]}
+              style={{ flex: 1, minWidth: 150 }}
+            >
+              <Select placeholder="请选择类型">
+                <Option value="injury">伤病</Option>
+                <Option value="fatigue">疲劳</Option>
+                <Option value="rest">休息需求</Option>
+              </Select>
+            </Form.Item>
+            <Form.Item
+              name="severity"
+              label="严重程度"
+              rules={[{ required: true, message: '请选择严重程度' }]}
+              style={{ flex: 1, minWidth: 150 }}
+            >
+              <Select placeholder="请选择严重程度">
+                <Option value="mild">轻微</Option>
+                <Option value="moderate">中等</Option>
+                <Option value="severe">严重</Option>
+              </Select>
+            </Form.Item>
+            <Form.Item
+              name="status"
+              label="状态"
+              rules={[{ required: true, message: '请选择状态' }]}
+              style={{ flex: 1, minWidth: 150 }}
+            >
+              <Select placeholder="请选择状态">
+                <Option value="active">活动中</Option>
+                <Option value="recovered">已恢复</Option>
+                <Option value="chronic">慢性</Option>
+              </Select>
+            </Form.Item>
+          </div>
+
+          <Form.Item
+            name="affected_body_part"
+            label="受影响身体部位"
+            rules={[{ required: true, message: '请选择或输入受影响身体部位' }]}
+          >
+            <Select placeholder="请选择或输入身体部位">
+              {bodyParts.map((part) => (
+                <Option key={part} value={part}>
+                  {part}
+                </Option>
+              ))}
+            </Select>
+          </Form.Item>
+
+          <Form.Item
+            name="description"
+            label="描述"
+            rules={[{ required: true, message: '请输入描述' }]}
+          >
+            <TextArea rows={3} placeholder="请详细描述伤病/疲劳情况" />
+          </Form.Item>
+
+          <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap' }}>
+            <Form.Item
+              name="onset_date"
+              label="发病日期"
+              rules={[{ required: true, message: '请选择发病日期' }]}
+              style={{ flex: 1, minWidth: 200 }}
+            >
+              <DatePicker style={{ width: '100%' }} format="YYYY-MM-DD" />
+            </Form.Item>
+            <Form.Item
+              name="expected_recovery_date"
+              label="预计恢复日期"
+              style={{ flex: 1, minWidth: 200 }}
+            >
+              <DatePicker style={{ width: '100%' }} format="YYYY-MM-DD" />
+            </Form.Item>
+          </div>
+
+          <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap' }}>
+            <Form.Item
+              name="training_restriction_days"
+              label="训练限制天数"
+              rules={[{ required: true, message: '请输入训练限制天数' }]}
+              style={{ flex: 1, minWidth: 200 }}
+            >
+              <InputNumber min={0} style={{ width: '100%' }} addonAfter="天" />
+            </Form.Item>
+            <Form.Item
+              name="no_sparring_days"
+              label="禁止对练天数"
+              rules={[{ required: true, message: '请输入禁止对练天数' }]}
+              style={{ flex: 1, minWidth: 200 }}
+            >
+              <InputNumber min={0} style={{ width: '100%' }} addonAfter="天" />
+            </Form.Item>
+          </div>
+
+          <Form.Item name="notes" label="备注">
+            <TextArea rows={3} placeholder="请输入其他备注信息" />
           </Form.Item>
         </Form>
       </Modal>

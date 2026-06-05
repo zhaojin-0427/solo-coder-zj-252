@@ -3,7 +3,9 @@ import type {
   FightType, WeightClass, TrainingGoal, Member, Coach,
   TrainingPlan, TrainingSession, FitnessData, SkillProgression,
   SparringMatch, MatchRequest, MatchScore,
-  FightTypeActivity, SkillProgress, MatchingStats, TrainingFrequency, OverviewStats
+  FightTypeActivity, SkillProgress, MatchingStats, TrainingFrequency, OverviewStats,
+  InjuryFatigueRecord, MatchingWeightConfig, TrainingPlanGoal,
+  TrainingLoadAssessment, MatchRiskAssessment, MemberLoadSummary
 } from '../types';
 
 const API_BASE = '/api';
@@ -137,4 +139,112 @@ export const statisticsApi = {
     api.get<MatchingStats>(`/statistics/matching_success_rate/?days=${days || 30}`),
   getTrainingFrequency: (days?: number) =>
     api.get<TrainingFrequency>(`/statistics/training_frequency/?days=${days || 30}`),
+};
+
+export const injuryFatigueRecordApi = {
+  getAll: (params?: { member?: number; status?: string; type?: string }) =>
+    api.get<{ results: InjuryFatigueRecord[]; count: number }>('/injury-fatigue-records/', { params }),
+  get: (id: number) => api.get<InjuryFatigueRecord>(`/injury-fatigue-records/${id}/`),
+  create: (data: Partial<InjuryFatigueRecord>) =>
+    api.post<InjuryFatigueRecord>('/injury-fatigue-records/', data),
+  update: (id: number, data: Partial<InjuryFatigueRecord>) =>
+    api.put<InjuryFatigueRecord>(`/injury-fatigue-records/${id}/`, data),
+  delete: (id: number) => api.delete(`/injury-fatigue-records/${id}/`),
+  markRecovered: (id: number) =>
+    api.post<InjuryFatigueRecord>(`/injury-fatigue-records/${id}/mark_recovered/`),
+};
+
+export const matchingWeightConfigApi = {
+  getAll: () => api.get<MatchingWeightConfig[]>('/matching-weight-configs/'),
+  get: (id: number) => api.get<MatchingWeightConfig>(`/matching-weight-configs/${id}/`),
+  create: (data: Partial<MatchingWeightConfig>) =>
+    api.post<MatchingWeightConfig>('/matching-weight-configs/', data),
+  update: (id: number, data: Partial<MatchingWeightConfig>) =>
+    api.put<MatchingWeightConfig>(`/matching-weight-configs/${id}/`, data),
+  delete: (id: number) => api.delete(`/matching-weight-configs/${id}/`),
+  getActive: () => api.get<MatchingWeightConfig>('/matching-weight-configs/active/'),
+  setActive: (id: number) =>
+    api.post<MatchingWeightConfig>(`/matching-weight-configs/${id}/set_active/`),
+};
+
+export const trainingLoadAssessmentApi = {
+  getAll: (params?: { member?: number }) =>
+    api.get<{ results: TrainingLoadAssessment[]; count: number }>('/training-load-assessments/', { params }),
+  get: (id: number) => api.get<TrainingLoadAssessment>(`/training-load-assessments/${id}/`),
+  create: (data: Partial<TrainingLoadAssessment>) =>
+    api.post<TrainingLoadAssessment>('/training-load-assessments/', data),
+  update: (id: number, data: Partial<TrainingLoadAssessment>) =>
+    api.put<TrainingLoadAssessment>(`/training-load-assessments/${id}/`, data),
+  delete: (id: number) => api.delete(`/training-load-assessments/${id}/`),
+  generateAll: () =>
+    api.post<{ generated_count: number; assessments: TrainingLoadAssessment[] }>(
+      '/training-load-assessments/generate_all/'
+    ),
+  generateForMember: (memberId: number) =>
+    api.post<TrainingLoadAssessment>('/training-load-assessments/generate_for_member/', {
+      member_id: memberId,
+    }),
+};
+
+export const matchRiskAssessmentApi = {
+  getAll: (params?: { member?: number }) =>
+    api.get<{ results: MatchRiskAssessment[]; count: number }>('/match-risk-assessments/', { params }),
+  get: (id: number) => api.get<MatchRiskAssessment>(`/match-risk-assessments/${id}/`),
+  create: (data: Partial<MatchRiskAssessment>) =>
+    api.post<MatchRiskAssessment>('/match-risk-assessments/', data),
+  update: (id: number, data: Partial<MatchRiskAssessment>) =>
+    api.put<MatchRiskAssessment>(`/match-risk-assessments/${id}/`, data),
+  delete: (id: number) => api.delete(`/match-risk-assessments/${id}/`),
+  assess: (data: {
+    member1_id: number;
+    member2_id: number;
+    fight_type_id: number;
+    preferred_date?: string;
+  }) => api.post<MatchRiskAssessment>('/match-risk-assessments/assess/', data),
+};
+
+export const trainingPlanGoalApi = {
+  getAll: (params?: { training_plan?: number }) =>
+    api.get<TrainingPlanGoal[]>('/training-plan-goals/', { params }),
+  get: (id: number) => api.get<TrainingPlanGoal>(`/training-plan-goals/${id}/`),
+  create: (data: Partial<TrainingPlanGoal>) =>
+    api.post<TrainingPlanGoal>('/training-plan-goals/', data),
+  update: (id: number, data: Partial<TrainingPlanGoal>) =>
+    api.put<TrainingPlanGoal>(`/training-plan-goals/${id}/`, data),
+  delete: (id: number) => api.delete(`/training-plan-goals/${id}/`),
+};
+
+export const memberApiExtended = {
+  getTrainingLoad: (memberId: number, date?: string) =>
+    api.get<TrainingLoadAssessment>(
+      `/members/${memberId}/training_load/${date ? `?date=${date}` : ''}`
+    ),
+  calculateLoad: (memberId: number) =>
+    api.post<TrainingLoadAssessment>(`/members/${memberId}/calculate_load/`),
+  getLoadTrend: (memberId: number, days?: number) =>
+    api.get(`/members/${memberId}/load_trend/?days=${days || 30}`),
+  getInjuryFatigueRecords: (memberId: number, status?: string) =>
+    api.get<InjuryFatigueRecord[]>(
+      `/members/${memberId}/injury_fatigue_records/${status ? `?status=${status}` : ''}`
+    ),
+  addInjuryFatigue: (memberId: number, data: Partial<InjuryFatigueRecord>) =>
+    api.post<InjuryFatigueRecord>(`/members/${memberId}/add_injury_fatigue/`, data),
+};
+
+export const trainingPlanApiExtended = {
+  getPlanGoals: (planId: number) =>
+    api.get<TrainingPlanGoal | null>(`/training-plans/${planId}/plan_goals/`),
+  setPlanGoals: (planId: number, data: Partial<TrainingPlanGoal>) =>
+    api.post<TrainingPlanGoal>(`/training-plans/${planId}/set_plan_goals/`, data),
+  getMemberLoadSummary: (planId: number, days?: number) =>
+    api.get<MemberLoadSummary>(
+      `/training-plans/${planId}/member_load_summary/?days=${days || 30}`
+    ),
+};
+
+export const matchRequestApiExtended = {
+  assessRisk: (requestId: number, partnerId: number) =>
+    api.post<MatchRiskAssessment>(`/match-requests/${requestId}/assess_risk/`, {
+      partner_id: partnerId,
+    }),
 };
