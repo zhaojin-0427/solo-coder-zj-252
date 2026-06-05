@@ -24,16 +24,19 @@ from .matching import find_potential_partners, auto_match_requests, calculate_ma
 class FightTypeViewSet(viewsets.ModelViewSet):
     queryset = FightType.objects.all()
     serializer_class = FightTypeSerializer
+    pagination_class = None
 
 
 class WeightClassViewSet(viewsets.ModelViewSet):
     queryset = WeightClass.objects.all()
     serializer_class = WeightClassSerializer
+    pagination_class = None
 
 
 class TrainingGoalViewSet(viewsets.ModelViewSet):
     queryset = TrainingGoal.objects.all()
     serializer_class = TrainingGoalSerializer
+    pagination_class = None
 
 
 class MemberViewSet(viewsets.ModelViewSet):
@@ -41,7 +44,7 @@ class MemberViewSet(viewsets.ModelViewSet):
     serializer_class = MemberSerializer
 
     def get_queryset(self):
-        queryset = Member.objects.all()
+        queryset = Member.objects.all().order_by('id')
         fight_type = self.request.query_params.get('fight_type', None)
         skill_level = self.request.query_params.get('skill_level', None)
         is_active = self.request.query_params.get('is_active', None)
@@ -83,6 +86,7 @@ class MemberViewSet(viewsets.ModelViewSet):
 class CoachViewSet(viewsets.ModelViewSet):
     queryset = Coach.objects.all()
     serializer_class = CoachSerializer
+    pagination_class = None
 
 
 class TrainingPlanViewSet(viewsets.ModelViewSet):
@@ -184,6 +188,7 @@ class TrainingSessionViewSet(viewsets.ModelViewSet):
 class FitnessDataViewSet(viewsets.ModelViewSet):
     queryset = FitnessData.objects.all()
     serializer_class = FitnessDataSerializer
+    pagination_class = None
 
 
 class SkillProgressionViewSet(viewsets.ModelViewSet):

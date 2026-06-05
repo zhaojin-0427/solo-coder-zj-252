@@ -744,7 +744,7 @@ const MatchRecordsPage = () => {
               style={{ width: '100%' }}
             />
           </Form.Item>
-          <Divider orientation="left">体能数据</Divider>
+          <Divider>体能数据</Divider>
           <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap' }}>
             <Form.Item name="heart_rate_avg" label="平均心率" style={{ width: 180 }}>
               <Input type="number" placeholder="bpm" />
