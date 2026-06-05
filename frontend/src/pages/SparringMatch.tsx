@@ -34,7 +34,7 @@ import {
   WarningOutlined,
   CheckCircleOutlined,
   ExclamationCircleOutlined,
-  DangerOutlined,
+  CloseCircleOutlined,
   InfoCircleOutlined,
 } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
@@ -54,8 +54,6 @@ import type {
   FightType,
   MatchingWeightConfig,
   MatchScoreDetails,
-  ScoreBreakdownItem,
-  MatchRiskAssessment,
   TrainingLoadAssessment,
 } from '../types';
 
@@ -112,7 +110,7 @@ const riskLevelIcons: Record<string, React.ReactNode> = {
   low: <InfoCircleOutlined />,
   moderate: <WarningOutlined />,
   high: <ExclamationCircleOutlined />,
-  dangerous: <DangerOutlined />,
+  dangerous: <CloseCircleOutlined />,
 };
 
 const loadLevelText: Record<string, string> = {
@@ -446,7 +444,7 @@ const SparringMatchPage: React.FC = () => {
   const renderRiskLevelTag = (riskLevel: string, isBlocked: boolean) => {
     if (isBlocked) {
       return (
-        <Tag color="red" icon={<DangerOutlined />} style={{ fontWeight: 'bold', fontSize: 14 }}>
+        <Tag color="red" icon={<CloseCircleOutlined />} style={{ fontWeight: 'bold', fontSize: 14 }}>
           高风险，已屏蔽
         </Tag>
       );
@@ -675,7 +673,6 @@ const SparringMatchPage: React.FC = () => {
                         description={scoreDetails.block_reason}
                         type="error"
                         showIcon
-                        size="small"
                       />
                     )}
                   </Space>

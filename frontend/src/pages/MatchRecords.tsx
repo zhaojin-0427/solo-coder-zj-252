@@ -416,7 +416,7 @@ const MatchRecordsPage = () => {
     setInjuryFatigueModalVisible(true);
   };
 
-  const handleRecordInjuryFatigueForMatch = (match: SparringMatch, member: Member) => {
+  const handleRecordInjuryFatigueForMatch = (_match: SparringMatch, member: Member) => {
     setSelectedMemberForInjury(member);
     injuryFatigueForm.resetFields();
     injuryFatigueForm.setFieldsValue({
@@ -686,7 +686,7 @@ const MatchRecordsPage = () => {
                   type="link"
                   size="small"
                   danger
-                  onClick={() => handleRecordInjuryFatigueForMatch(record, record.member2)}
+                  onClick={() => handleRecordInjuryFatigueForMatch(record, record.member2!)}
                 >
                   {record.member2.name}伤病/疲劳
                 </Button>
@@ -1304,7 +1304,7 @@ const MatchRecordsPage = () => {
                       {selectedMatch.member2 && (
                         <Button
                           danger
-                          onClick={() => handleRecordInjuryFatigueForMatch(selectedMatch, selectedMatch.member2)}
+                          onClick={() => handleRecordInjuryFatigueForMatch(selectedMatch, selectedMatch.member2!)}
                         >
                           记录 {selectedMatch.member2.name} 伤病/疲劳
                         </Button>
